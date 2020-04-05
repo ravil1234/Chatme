@@ -1,7 +1,9 @@
 package com.example.chatme;
+import android.annotation.SuppressLint;
 import android.content.Intent;
 import android.graphics.SumPathEffect;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.text.Editable;
 import android.text.InputFilter;
@@ -37,16 +39,19 @@ import com.google.firebase.storage.UploadTask;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
+import java.util.Objects;
+
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
+import androidx.annotation.RequiresApi;
 import androidx.appcompat.app.AppCompatActivity;
 public class MainActivity extends AppCompatActivity {
-    public static final String TAG = "MainActivity";
-    List<AuthUI.IdpConfig> providers;
+
+    private static final String TAG = "MainActivity";
+
     public static final String ANONYMOUS = "anonymous";
     public static final int DEFAULT_MSG_LENGTH_LIMIT = 1000;
-    private static final int RC_PHOTO_PICKER =  2;
-    private static final int RC_SIGN_IN = 1;
+
     private ListView mMessageListView;
     private MessageAdapter mMessageAdapter;
     private ProgressBar mProgressBar;
@@ -55,14 +60,16 @@ public class MainActivity extends AppCompatActivity {
     private Button mSendButton;
 
     private String mUsername;
+
     private FirebaseDatabase mFirebaseDatabase;
     private DatabaseReference mDatabaseReference;
     private ChildEventListener mChildEventListener;
     private FirebaseAuth mFirebaseAuth;
-    private FirebaseAuth.AuthStateListener mAuthStateListener;
+    private FirebaseAuth.AuthStateListener mStateListener;
+    public static final int RC_SIGN_IN=1;
+    public static  final int RC_PHOTO_PICKER=2;
     private FirebaseStorage mFirebaseStorage;
-    private StorageReference mchatStorageReference;
-    private Object Log;
+    private StorageReference mstorageDatabaseReference;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -70,17 +77,7 @@ public class MainActivity extends AppCompatActivity {
         setContentView(R.layout.activity_main);
 
         mUsername = ANONYMOUS;
-        providers = new ArrayList<>();
-        //initialize firebase componenets
 
-
-       // FirebaseDatabase.getInstance().setPersistenceEnabled(true);
-      //  mFirebaseDatabase.setPersistenceEnabled(true);
-        mFirebaseDatabase=FirebaseDatabase.getInstance();
-         mFirebaseAuth=FirebaseAuth.getInstance();
-         mFirebaseStorage =FirebaseStorage.getInstance();
-         mDatabaseReference=mFirebaseDatabase.getReference().child("messages");
-         mchatStorageReference=mFirebaseStorage.getReference().child("chat photos");
         // Initialize references to views
         mProgressBar = (ProgressBar) findViewById(R.id.progressBar);
         mMessageListView = (ListView) findViewById(R.id.messageListView);
@@ -93,19 +90,27 @@ public class MainActivity extends AppCompatActivity {
         mMessageAdapter = new MessageAdapter(this, R.layout.item_message, friendlyMessages);
         mMessageListView.setAdapter(mMessageAdapter);
 
+        mFirebaseDatabase =FirebaseDatabase.getInstance();
+        mDatabaseReference=mFirebaseDatabase.getReference().child("messages");
+        mFirebaseAuth=FirebaseAuth.getInstance();
+        mFirebaseStorage=FirebaseStorage.getInstance();
+        mstorageDatabaseReference=mFirebaseStorage.getReference().child("chat_photos");
+
+
+
         // Initialize progress bar
         mProgressBar.setVisibility(ProgressBar.INVISIBLE);
 
         // ImagePickerButton shows an image picker to upload a image for a message
         mPhotoPickerButton.setOnClickListener(new View.OnClickListener() {
-                // TODO: Fire an intent to show an image picker
-
             @Override
             public void onClick(View view) {
-                Intent intent = new Intent(Intent.ACTION_GET_CONTENT);
-                intent.setType("image/jpeg");
-                intent.putExtra(Intent.EXTRA_LOCAL_ONLY, true);
-                startActivityForResult(Intent.createChooser(intent, "Complete action using"), RC_PHOTO_PICKER);
+                // TODO: Fire an intent to show an image picker
+                Intent intent=new Intent(Intent.ACTION_GET_CONTENT);
+                intent.setType("image/jpg");
+                intent.putExtra(Intent.EXTRA_LOCAL_ONLY,true);
+                startActivityForResult(Intent.createChooser(intent,"complete action using"),RC_PHOTO_PICKER);
+
             }
         });
 
@@ -135,42 +140,76 @@ public class MainActivity extends AppCompatActivity {
             @Override
             public void onClick(View view) {
                 // TODO: Send messages on click
-                FriendlyMessage friendlyMessage = new FriendlyMessage(mMessageEditText.getText().toString(), mUsername, null);
+
                 // Clear input box
+                FriendlyMessage friendlyMessage=new FriendlyMessage(mMessageEditText.getText().toString(),mUsername,null);
                 mDatabaseReference.push().setValue(friendlyMessage);
                 mMessageEditText.setText("");
             }
         });
-        mAuthStateListener=new FirebaseAuth.AuthStateListener() {
+        mStateListener=new FirebaseAuth.AuthStateListener() {
             @Override
-            public void onAuthStateChanged(@NonNull FirebaseAuth firebaseAuth)//checks whether user is logged in or not;
-            {
-                FirebaseUser user= firebaseAuth.getCurrentUser();
-                if(user!=null)
-                {
-                    //signed in
-                    Toast.makeText(MainActivity.this,"YOU ARE NOW SIGNED IN! WELCOME TO CHAT",Toast.LENGTH_SHORT).show();
-                    onSignedInInitialize(user.getDisplayName());
+            public void onAuthStateChanged(@NonNull FirebaseAuth firebaseAuth) {
+                FirebaseUser user=firebaseAuth.getCurrentUser();
+                if (user != null)  {            //if he is signed in
+                    onSignInInitialised(firebaseAuth.getCurrentUser().getDisplayName());
+
                 }
-                else
-                {
-                    //signed out
-                    onSignedOutCleanUp();
+                else{                           //not signed in
+                    onSignedOutClean();
                     startActivityForResult(
                             AuthUI.getInstance()
                                     .createSignInIntentBuilder()
-                                    .setIsSmartLockEnabled(false)
+                                    .setIsSmartLockEnabled(false)			//if the sign in you want to be saved temp then dont add
                                     .setAvailableProviders(Arrays.asList(
                                             new AuthUI.IdpConfig.GoogleBuilder().build(),
-                                            new AuthUI.IdpConfig.EmailBuilder().build()
-                                            ))
+                                            new AuthUI.IdpConfig.EmailBuilder().build()))
                                     .build(),
                             RC_SIGN_IN);
                 }
             }
         };
-
     }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if(requestCode==RC_SIGN_IN){
+            if(resultCode==RESULT_OK){
+                Toast.makeText(MainActivity.this,"Sign-in Successfully",Toast.LENGTH_SHORT).show();
+            }
+            else if(resultCode==RESULT_CANCELED){
+                finish();
+            }
+
+        }            else if(requestCode==RC_PHOTO_PICKER&&resultCode==RESULT_OK){
+            Uri selectedImage=data.getData();
+            final StorageReference photoRef=mstorageDatabaseReference.child(selectedImage.getLastPathSegment());
+            photoRef.putFile(selectedImage).continueWithTask(new Continuation<UploadTask.TaskSnapshot, Task<Uri>>() {
+                @Override
+                public Task<Uri> then(@NonNull Task<UploadTask.TaskSnapshot> task) throws Exception {
+                    if(!task.isSuccessful()){
+                        throw task.getException();
+                    }
+                    return photoRef.getDownloadUrl();
+                }
+            }).addOnCompleteListener(new OnCompleteListener<Uri>() {
+                @Override
+                public void onComplete(@NonNull Task<Uri> task) {
+                    if(task.isSuccessful()){
+                        Uri photoUrl=task.getResult();
+                        FriendlyMessage friendlyMessage=new FriendlyMessage(null,mUsername,photoUrl.toString());
+                        mDatabaseReference.push().setValue(friendlyMessage);
+                    }
+                    else{
+                        Toast.makeText(MainActivity.this,"Error-"+task.getException(),Toast.LENGTH_SHORT).show();
+                    }
+                }
+            });
+
+        }
+    }
+
     @Override
     public boolean onCreateOptionsMenu(Menu menu) {
         MenuInflater inflater = getMenuInflater();
@@ -180,162 +219,74 @@ public class MainActivity extends AppCompatActivity {
 
     @Override
     public boolean onOptionsItemSelected(MenuItem item) {
-        switch(item.getItemId()) {
-            case R.id.sign_out_menu:
+        switch (item.getItemId()){
+            case R.id.sign_out_menu:{
                 AuthUI.getInstance().signOut(this);
                 return true;
-            default:
-                return super.onOptionsItemSelected(item);
+            }
+            default:return super.onOptionsItemSelected(item);
         }
     }
+
     @Override
-    protected void onPause()
-    {
-        super.onPause();
-        mFirebaseAuth.removeAuthStateListener(mAuthStateListener);
-    }
-    @Override
-    public void onActivityResult(int requestCode, int resultCode, Intent data)
-    {
-        super.onActivityResult(requestCode,resultCode,data);
-        if(requestCode==RC_SIGN_IN) {
-            if (resultCode == RESULT_OK) {
-                Toast.makeText(this, "signed in", Toast.LENGTH_SHORT).show();
-            } else if (resultCode == RESULT_CANCELED) {
-                Toast.makeText(this, "signed in CANCELLED", Toast.LENGTH_SHORT).show();
-                finish();
-            }
-        }
-                else if(requestCode==RC_PHOTO_PICKER&&resultCode==RESULT_CANCELED&&resultCode==RESULT_OK) {
-                Uri selectedImageUri=data.getData();
-                final StorageReference ref = mchatStorageReference.child(selectedImageUri.getLastPathSegment());
-                UploadTask uploadTask = ref.putFile(selectedImageUri);
-
-                 uploadTask.continueWithTask(new Continuation<UploadTask.TaskSnapshot, Task<Uri>>() {
-                    @Override
-                    public Task<Uri> then(@NonNull Task<UploadTask.TaskSnapshot> task) throws Exception {
-                        if (!task.isSuccessful()) {
-                            throw task.getException();
-                        }
-
-                        // Continue with the task to get the download URL
-                        return ref.getDownloadUrl();
-                    }
-                }).addOnCompleteListener(new OnCompleteListener<Uri>() {
-                    @Override
-                    public void onComplete(@NonNull Task<Uri> task) {
-                        if (task.isSuccessful()) {
-                            Uri downloadUri = task.getResult();
-                            FriendlyMessage friendlyMessage = new FriendlyMessage(null, mUsername, downloadUri.toString());
-                            mDatabaseReference.push().setValue(friendlyMessage);
-
-                        } else {
-                            // Handle failures
-                            // ...
-                            Toast.makeText(MainActivity.this, "upload failed: " + task.getException().getMessage(), Toast.LENGTH_SHORT).show();
-
-                        }
-                    }
-                });
-
-                    /*
-                Uri selectedImageUri=data.getData();
-                 StorageReference photoRef =
-                        mchatStorageReference.child(selectedImageUri.getLastPathSegment());
-                // TODO Not working, method depricated
-                // Upload file to Firebase Storage
-                photoRef.putFile(selectedImageUri).addOnSuccessListener(this,
-                        new OnSuccessListener<UploadTask.TaskSnapshot>() {
-                            @Override
-                            public void onSuccess(UploadTask.TaskSnapshot taskSnapshot) {
-                                Task<Uri> urlTask = taskSnapshot.getStorage().getDownloadUrl();
-                                while (!urlTask.isSuccessful());
-                                    Uri downloadUrl = urlTask.getResult();
-                                    FriendlyMessage friendlyMessage = new FriendlyMessage(null, mUsername, downloadUrl.toString());
-                                    mDatabaseReference.push().setValue(friendlyMessage);
-                            }
-                        });
-                    /*
-                    public Task<Uri> then(@NonNull Task<UploadTask.TaskSnapshot> task) throws Exception {
-                        if (!task.isSuccessful()) {
-                            throw task.getException();
-                        }
-                        return photoRef.getDownloadUrl();
-                    }
-                }).addOnCompleteListener(new OnCompleteListener<Uri>() {
-                    @Override
-                    public void onComplete(@NonNull Task<Uri> task) {
-                        if (task.isSuccessful()) {
-                            // When the image has successfully uploaded, we get its download URL
-                            Uri downloadUri = task.getResult();
-
-                            // Set the download URL to the message box, so that the user can send it to the database
-                            FriendlyMessage friendlyMessage = new FriendlyMessage(null, mUsername, downloadUri.toString());
-                            mDatabaseReference.push().setValue(friendlyMessage);
-                        } else {
-                            Toast.makeText(MainActivity.this, "upload failed: " + task.getException().getMessage(), Toast.LENGTH_SHORT).show();
-                        }
-                    }
-                        });
-
-                 */
-            }
-        }
-
-    protected void onResume()
-    {
+    protected void onResume() {
         super.onResume();
-        mFirebaseAuth.addAuthStateListener(mAuthStateListener);
-        detachDatabaseReadListener();
+        mFirebaseAuth.addAuthStateListener(mStateListener);
+    }
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        mFirebaseAuth.removeAuthStateListener(mStateListener);
+        ondetatchEventListener();
         mMessageAdapter.clear();
     }
-    private void  onSignedInInitialize(String username)
-    {
+    private void onSignInInitialised(String username){
         mUsername=username;
-        attachDatabaseReadListener();
-
+        onAttachEventListener();
     }
-    private void onSignedOutCleanUp()
-    {
-      mUsername=ANONYMOUS;
-      mMessageAdapter.clear();
+    private void onSignedOutClean(){
+        mUsername=ANONYMOUS;
+        mMessageAdapter.clear();
+        ondetatchEventListener();
     }
-    private void attachDatabaseReadListener()
-    {if(mChildEventListener==null) {
-        mChildEventListener = new ChildEventListener() {
-            @Override
-            public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+    private void onAttachEventListener(){
+        if(mChildEventListener==null){
+            mChildEventListener =new ChildEventListener() {
+                @Override
+                public void onChildAdded(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+                    FriendlyMessage friendlyMessage=dataSnapshot.getValue(FriendlyMessage.class);
+                    mMessageAdapter.add(friendlyMessage);
 
-                FriendlyMessage friendlyMessage = dataSnapshot.getValue(FriendlyMessage.class);
-                mMessageAdapter.add(friendlyMessage);
-            }
-            @Override
-            public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+                }
 
-            }
+                @Override
+                public void onChildChanged(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
 
-            @Override
-            public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
+                }
 
-            }
+                @Override
+                public void onChildRemoved(@NonNull DataSnapshot dataSnapshot) {
 
-            @Override
-            public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
+                }
 
-            }
+                @Override
+                public void onChildMoved(@NonNull DataSnapshot dataSnapshot, @Nullable String s) {
 
-            @Override
-            public void onCancelled(@NonNull DatabaseError databaseError) {
+                }
 
-            }
-        };
-        mDatabaseReference.addChildEventListener(mChildEventListener);
+                @Override
+                public void onCancelled(@NonNull DatabaseError databaseError) {
+
+                }
+            };
+            mDatabaseReference.addChildEventListener(mChildEventListener);
+        }
     }
-    }
-    private void detachDatabaseReadListener()
-    {
-        if(mChildEventListener!=null)
-        mDatabaseReference.removeEventListener(mChildEventListener);
-        mChildEventListener=null;
+    private void ondetatchEventListener(){
+        if(mChildEventListener!=null){
+            mDatabaseReference.removeEventListener(mChildEventListener);
+            mChildEventListener=null;
+        }
     }
 }

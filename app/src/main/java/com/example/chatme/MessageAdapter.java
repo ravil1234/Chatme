@@ -1,5 +1,4 @@
 package com.example.chatme;
-
 import android.app.Activity;
 import android.content.Context;
 import android.view.View;
@@ -42,7 +41,6 @@ public class MessageAdapter extends ArrayAdapter<FriendlyMessage> {
             messageTextView.setText(message.getText());
         }
         authorTextView.setText(message.getName());
-
         return convertView;
     }
 }
